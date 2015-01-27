@@ -280,7 +280,8 @@
 <script src="bootstrap.min.js" ></script>
 
 <!-- include the cornerstone library -->
-<script src="cornerstone.min.js"></script>
+<!-- <script src="cornerstone.min.js"></script> -->
+<script src="cornerstone.js"></script>
 
 <!-- include the cornerstone library -->
 <script src="cornerstoneMath.min.js"></script>
@@ -300,6 +301,9 @@
 <!-- chronicle: add couch support for jquery -->
 <script src="jquery.couch.js"></script>
 
+<!-- chronicle: add http loader -->
+<script src="cornerstoneHTTPDICOMImageLoader.js"></script>
+
     <script>
 
     var chURLPrefix = "http://common.bwh.harvard.edu:5984";
@@ -316,6 +320,34 @@
     var stacks = [];
     var currentStackIndex = 0;
     var seriesIndex = 0;
+    var seriesList = undefined;
+    var firstImageFetched = undefined;
+
+    function chronicleAddStackToSeriesList(stack) {
+      var seriesEntry = '<a class="list-group-item" + ' +
+                            'oncontextmenu="return false"' +
+                            'unselectable="on"' +
+                            'onselectstart="return false;"' +
+                            'onmousedown="return false;">' +
+                            '<div class="csthumbnail"' +
+                                  'oncontextmenu="return false"' +
+                                  'unselectable="on"' +
+                                  'onselectstart="return false;"' +
+                                  'onmousedown="return false;"></div>' +
+                            "<div class='text-center small'>" + stack.seriesDescription + '</div></a>';
+
+      var seriesElement = $(seriesEntry).appendTo(seriesList);
+      var thumbnail = $(seriesElement).find('div')[0];
+      cornerstone.enable(thumbnail);
+      cornerstone.loadAndCacheImage(stacks[stack.seriesIndex].imageIds[0]).then(function(image) {
+          if(stack.seriesIndex === 0) {
+              $(seriesElement).addClass('active');
+          }
+          cornerstone.displayImage(thumbnail, image);
+      });
+
+      $(seriesElement).on('click touchstart', function () {selectSeries(seriesElement);});
+    };
 
     // given a key to a series, fill a list of instances
     function chronicleLoadSeries(studyViewer, key) {
@@ -330,18 +362,29 @@
       seriesIndex++;
       stacks.push(stack);
 
+      seriesList = $(studyViewer).find('.thumbnails')[0];
+
       // chronicle
       $.couch.urlPrefix = chURLPrefix;
-      console.log('series:', key);
-      var pendingUpdateRequest = $.couch.db(chDatabase).view("instances/context", {
-        startkey : key,
-        endkey : [key,{}],
+      seriesUID = key[2][2];
+      console.log('series:', seriesUID);
+      var pendingUpdateRequest = $.couch.db(chDatabase).view("instances/seriesInstances", {
+        startkey : seriesUID,
+        endkey : seriesUID + '\u9999',
         stale : 'update_after',
+        reduce : false,
         success: function(data) {
           console.log('instance ', data);
           $.each(data.rows, function(index,row) {
-            var instanceURL = chURLPrefix + '/' + chDatabase + '/' + row.key + '/object.dcm';
+            var instanceURL = chURLPrefix + '/' + chDatabase + '/' + row.value[1] + '/object.dcm';
             //stack.imageId.push(instanceURL);
+            if (!firstImageFetched) {
+              instanceURL = 'http://common:5984/chronicle/1.3.6.1.4.1.32722.99.99.115511490271174834109077870583423555935/object.dcm'
+              console.log('first row', row);
+              console.log('first row', instanceURL);
+              firstImageFetched = instanceURL;
+              enableImageElement(studyViewer, instanceURL); 
+            }
           });
         },
       });
@@ -349,10 +392,8 @@
 
     // for a study key, request a set of series
     function chronicleLoadStudy(studyViewer, key) {
-
-      // chronicle
+      console.log('study ', key);
       $.couch.urlPrefix = chURLPrefix;
-      console.log(key);
       var endkey = key.slice(0); // shallow copy
       endkey.push({});
       var pendingUpdateRequest = $.couch.db(chDatabase).view("instances/context", {
@@ -363,250 +404,297 @@
         group_level : 3,
         success: function(data) {
           $.each(data.rows, function(index,row) {
-            console.log(row);
             chronicleLoadSeries(studyViewer, row.key);
           });
         }
       });
 
-            // resize the parent div of the viewport to fit the screen
-            var imageViewer = $(studyViewer).find('.imageViewer')[0];
-            var viewportWrapper = $(imageViewer).find('.viewportWrapper')[0];
-            var parentDiv = $(studyViewer).find('.viewer')[0];
-            viewportWrapper.style.width = (parentDiv.style.width - 10) + "px";
-            viewportWrapper.style.height= (window.innerHeight - 150) + "px";
+      data = {
+        patientName : key[0][1],
+        patientId : key[0][1],
+        studyDescription : key[1][0],
+        studyDate : "TBD",
+      };
 
-            var studyRow = $(studyViewer).find('.studyRow')[0];
-            var width = $(studyRow).width();
-            $(parentDiv).width(width - 170);
-            viewportWrapper.style.width = (parentDiv.style.width - 10) + "px";
-            viewportWrapper.style.height= (window.innerHeight - 150) + "px";
+      // resize the parent div of the viewport to fit the screen
+      var imageViewer = $(studyViewer).find('.imageViewer')[0];
+      var viewportWrapper = $(imageViewer).find('.viewportWrapper')[0];
+      var parentDiv = $(studyViewer).find('.viewer')[0];
+      viewportWrapper.style.width = (parentDiv.style.width - 10) + "px";
+      viewportWrapper.style.height= (window.innerHeight - 150) + "px";
 
-            // image enable the dicomImage element and activate a few tools
-            var element = $(studyViewer).find('.viewport')[0];
-            var parent = $(element).parent();
-            var childDivs = $(parent).find('.overlay');
-            var topLeft = $(childDivs[0]).find('div');
-            $(topLeft[0]).text(data.patientName);
-            $(topLeft[1]).text(data.patientId);
-            var topRight= $(childDivs[1]).find('div');
-            $(topRight[0]).text(data.studyDescription);
-            $(topRight[1]).text(data.studyDate);
-            var bottomLeft = $(childDivs[2]).find('div');
-            var bottomRight = $(childDivs[3]).find('div');
+      var studyRow = $(studyViewer).find('.studyRow')[0];
+      var width = $(studyRow).width();
+      $(parentDiv).width(width - 170);
+      viewportWrapper.style.width = (parentDiv.style.width - 10) + "px";
+      viewportWrapper.style.height= (window.innerHeight - 150) + "px";
 
-            function onNewImage(e) {
-                // if we are currently playing a clip then update the FPS
-                var playClipToolData = cornerstoneTools.getToolState(element, 'playClip');
-                if(playClipToolData !== undefined && playClipToolData.data.length > 0 && playClipToolData.data[0].intervalId !== undefined && e.detail.frameRate !== undefined) {
-                    $(bottomLeft[0]).text("FPS: " + Math.round(e.detail.frameRate));
-                    //console.log('frameRate: ' + e.detail.frameRate);
-                } else {
-                    if($(bottomLeft[0]).text().length > 0) {
-                        $(bottomLeft[0]).text("");
-                    }
-                }
-                $(bottomLeft[2]).text("Image #" + (stacks[currentStackIndex].currentImageIdIndex + 1) + "/" + stacks[currentStackIndex].imageIds.length);
+    }
+
+    function enableImageElement(studyViewer, imageURL) {
+
+      var element = $(studyViewer).find('.viewport')[0];
+
+      function onNewImage(e) {
+        // image enable the dicomImage element and activate a few tools
+        var element = $(studyViewer).find('.viewport')[0];
+        var parent = $(element).parent();
+        var childDivs = $(parent).find('.overlay');
+        var topLeft = $(childDivs[0]).find('div');
+        $(topLeft[0]).text(data.patientName);
+        $(topLeft[1]).text(data.patientId);
+        var topRight= $(childDivs[1]).find('div');
+        $(topRight[0]).text(data.studyDescription);
+        $(topRight[1]).text(data.studyDate);
+        var bottomLeft = $(childDivs[2]).find('div');
+        var bottomRight = $(childDivs[3]).find('div');
+
+
+        // if we are currently playing a clip then update the FPS
+        var playClipToolData = cornerstoneTools.getToolState(element, 'playClip');
+        if(playClipToolData !== undefined && playClipToolData.data.length > 0 && playClipToolData.data[0].intervalId !== undefined && e.detail.frameRate !== undefined) {
+            $(bottomLeft[0]).text("FPS: " + Math.round(e.detail.frameRate));
+            //console.log('frameRate: ' + e.detail.frameRate);
+        } else {
+            if($(bottomLeft[0]).text().length > 0) {
+                $(bottomLeft[0]).text("");
             }
-            element.addEventListener("CornerstoneNewImage", onNewImage, false);
+        }
+        $(bottomLeft[2]).text("Image #" + (stacks[currentStackIndex].currentImageIdIndex + 1) + "/" + stacks[currentStackIndex].imageIds.length);
+      }
+      element.addEventListener("CornerstoneNewImage", onNewImage, false);
 
-            function onImageRendered(e) {
-                $(bottomRight[0]).text("Zoom:" + e.detail.viewport.scale.toFixed(2));
-                $(bottomRight[1]).text("WW/WL:" + Math.round(e.detail.viewport.voi.windowWidth) + "/" + Math.round(e.detail.viewport.voi.windowCenter));
-                $(bottomLeft[1]).text("Render Time:" + e.detail.renderTimeInMs + " ms");
-            }
-            element.addEventListener("CornerstoneImageRendered", onImageRendered, false);
+      function onImageRendered(e) {
+          $(bottomRight[0]).text("Zoom:" + e.detail.viewport.scale.toFixed(2));
+          $(bottomRight[1]).text("WW/WL:" + Math.round(e.detail.viewport.voi.windowWidth) + "/" + Math.round(e.detail.viewport.voi.windowCenter));
+          $(bottomLeft[1]).text("Render Time:" + e.detail.renderTimeInMs + " ms");
+      }
+      element.addEventListener("CornerstoneImageRendered", onImageRendered, false);
 
+      // image enable the dicomImage element
+      cornerstone.enable(element);
+      console.log('requesting');
+      var promise = cornerstone.loadAndCacheImage(imageURL);
+      console.log('promise', promise);
+      promise.then(function(image) {
+          console.log('got image ', image);
+          cornerstone.displayImage(element, image);
+          /*
+          if(stacks[0].frameRate !== undefined) {
+              cornerstone.playClip(element, stacks[0].frameRate);
+          }
+          */
 
-            var imageId = stacks[currentStackIndex].imageIds[0];
+          cornerstoneTools.mouseInput.enable(element);
+          cornerstoneTools.mouseWheelInput.enable(element);
+          cornerstoneTools.touchInput.enable(element);
 
-            // image enable the dicomImage element
-            cornerstone.enable(element);
-                        cornerstone.loadAndCacheImage(imageId).then(function(image) {
-                cornerstone.displayImage(element, image);
-                if(stacks[0].frameRate !== undefined) {
-                    cornerstone.playClip(element, stacks[0].frameRate);
-                }
-
-                cornerstoneTools.mouseInput.enable(element);
-                cornerstoneTools.mouseWheelInput.enable(element);
-                cornerstoneTools.touchInput.enable(element);
-
-                // Enable all tools we want to use with this element
-                cornerstoneTools.wwwc.activate(element, 1); // ww/wc is the default tool for left mouse button
-                cornerstoneTools.pan.activate(element, 2); // pan is the default tool for middle mouse button
-                cornerstoneTools.zoom.activate(element, 4); // zoom is the default tool for right mouse button
-                cornerstoneTools.probe.enable(element);
-                cornerstoneTools.length.enable(element);
-                cornerstoneTools.ellipticalRoi.enable(element);
-                cornerstoneTools.rectangleRoi.enable(element);
-                cornerstoneTools.wwwcTouchDrag.activate(element);
-                cornerstoneTools.zoomTouchPinch.activate(element);
-
-
-                // stack tools
-                cornerstoneTools.addStackStateManager(element, ['playClip']);
-                cornerstoneTools.addToolState(element, 'stack', stacks[0]);
-                cornerstoneTools.stackScrollWheel.activate(element);
-                cornerstoneTools.stackPrefetch.enable(element);
-
-
-                function disableAllTools()
-                {
-                    cornerstoneTools.wwwc.disable(element);
-                    cornerstoneTools.pan.activate(element, 2); // 2 is middle mouse button
-                    cornerstoneTools.zoom.activate(element, 4); // 4 is right mouse button
-                    cornerstoneTools.probe.deactivate(element, 1);
-                    cornerstoneTools.length.deactivate(element, 1);
-                    cornerstoneTools.ellipticalRoi.deactivate(element, 1);
-                    cornerstoneTools.rectangleRoi.deactivate(element, 1);
-                    cornerstoneTools.stackScroll.deactivate(element, 1);
-                    cornerstoneTools.wwwcTouchDrag.deactivate(element);
-                    cornerstoneTools.zoomTouchDrag.deactivate(element);
-                    cornerstoneTools.panTouchDrag.deactivate(element);
-                    cornerstoneTools.stackScrollTouchDrag.deactivate(element);
-                }
-
-                var buttons = $(studyViewer).find('button');
-                // Tool button event handlers that set the new active tool
-                $(buttons[0]).on('click touchstart',function() {
-                    disableAllTools();
-                    cornerstoneTools.wwwc.activate(element, 1);
-                    cornerstoneTools.wwwcTouchDrag.activate(element);
-                });
-                $(buttons[1]).on('click touchstart',function() {
-                    disableAllTools();
-                    var viewport = cornerstone.getViewport(element);
-                    if(viewport.invert === true) {
-                        viewport.invert = false;
-                    }
-                    else {
-                        viewport.invert = true;
-                    }
-                    cornerstone.setViewport(element, viewport);
-                });
-                $(buttons[2]).on('click touchstart',function() {
-                    disableAllTools();
-                    cornerstoneTools.zoom.activate(element, 5); // 5 is right mouse button and left mouse button
-                    cornerstoneTools.zoomTouchDrag.activate(element);
-                });
-                $(buttons[3]).on('click touchstart',function() {
-                    disableAllTools();
-                    cornerstoneTools.pan.activate(element, 3); // 3 is middle mouse button and left mouse button
-                    cornerstoneTools.panTouchDrag.activate(element);
-                });
-                $(buttons[4]).on('click touchstart',function() {
-                    disableAllTools();
-                    cornerstoneTools.stackScroll.activate(element, 1);
-                    cornerstoneTools.stackScrollTouchDrag.activate(element);
-                });
-                $(buttons[5]).on('click touchstart',function() {
-                    disableAllTools();
-                    cornerstoneTools.length.activate(element, 1);
-                });
-                $(buttons[6]).on('click touchstart',function() {
-                    disableAllTools();
-                    cornerstoneTools.probe.activate(element, 1);
-                });
-                $(buttons[7]).on('click touchstart',function() {
-                    disableAllTools();
-                    cornerstoneTools.ellipticalRoi.activate(element, 1);
-                });
-                $(buttons[8]).on('click touchstart',function() {
-                    disableAllTools();
-                    cornerstoneTools.rectangleRoi.activate(element, 1);
-                });
-                $(buttons[9]).on('click touchstart',function() {
-                    var frameRate = stacks[currentStackIndex].frameRate;
-                    if(frameRate === undefined) {
-                        frameRate = 10;
-                    }
-                    cornerstoneTools.playClip(element, 31);
-                });
-                $(buttons[10]).on('click touchstart',function() {
-                    cornerstoneTools.stopClip(element);
-                });
-                $(buttons[0]).tooltip();
-                $(buttons[1]).tooltip();
-                $(buttons[2]).tooltip();
-                $(buttons[3]).tooltip();
-                $(buttons[4]).tooltip();
-                $(buttons[5]).tooltip();
-                $(buttons[6]).tooltip();
-                $(buttons[7]).tooltip();
-                $(buttons[8]).tooltip();
-                $(buttons[9]).tooltip();
-
-                var seriesList = $(studyViewer).find('.thumbnails')[0];
-                stacks.forEach(function(stack) {
-                    var seriesEntry = '<a class="list-group-item" + ' +
-                            'oncontextmenu="return false"' +
-                        'unselectable="on"' +
-                        'onselectstart="return false;"' +
-                        'onmousedown="return false;">' +
-                                '<div class="csthumbnail"' +
-                            'oncontextmenu="return false"' +
-                            'unselectable="on"' +
-                            'onselectstart="return false;"' +
-                            'onmousedown="return false;"></div>' +
-                            "<div class='text-center small'>" + stack.seriesDescription + '</div></a>';
-                    var seriesElement = $(seriesEntry).appendTo(seriesList);
-                    var thumbnail = $(seriesElement).find('div')[0];
-                    cornerstone.enable(thumbnail);
-                    cornerstone.loadAndCacheImage(stacks[stack.seriesIndex].imageIds[0]).then(function(image) {
-                        if(stack.seriesIndex === 0) {
-                            $(seriesElement).addClass('active');
-                        }
-                        cornerstone.displayImage(thumbnail, image);
-
-                    });
-                    $(seriesElement).on('click touchstart', function () {
-                        // make this series visible
-                        var activeThumbnails = $(seriesList).find('a').each(function() {
-                            $(this).removeClass('active');
-                        });
-                        $(seriesElement).addClass('active');
-
-                        cornerstoneTools.stopClip(element);
-                        cornerstoneTools.stackScroll.disable(element);
-                        cornerstoneTools.stackScroll.enable(element, stacks[stack.seriesIndex], 0);
-                        cornerstone.loadAndCacheImage(stacks[stack.seriesIndex].imageIds[0]).then(function(image) {
-                            var defViewport = cornerstone.getDefaultViewport(element, image);
-                            currentStackIndex = stack.seriesIndex;
-                            cornerstone.displayImage(element, image, defViewport);
-                            cornerstone.fitToWindow(element);
-                            var stackState = cornerstoneTools.getToolState(element, 'stack');
-                            stackState.data[0] = stacks[stack.seriesIndex];
-                            stackState.data[0].currentImageIdIndex = 0;
-                            cornerstoneTools.stackPrefetch.enable(element);
-                            $(bottomLeft[1]).text("# Images: " + stacks[stack.seriesIndex].imageIds.length);
-
-                            if(stacks[stack.seriesIndex].frameRate !== undefined) {
-                                cornerstoneTools.playClip(element, stacks[stack.seriesIndex].frameRate);
-                            }
-                        });
-                    });
+          // Enable all tools we want to use with this element
+          cornerstoneTools.wwwc.activate(element, 1); // ww/wc is the default tool for left mouse button
+          cornerstoneTools.pan.activate(element, 2); // pan is the default tool for middle mouse button
+          cornerstoneTools.zoom.activate(element, 4); // zoom is the default tool for right mouse button
+          cornerstoneTools.probe.enable(element);
+          cornerstoneTools.length.enable(element);
+          cornerstoneTools.ellipticalRoi.enable(element);
+          cornerstoneTools.rectangleRoi.enable(element);
+          cornerstoneTools.wwwcTouchDrag.activate(element);
+          cornerstoneTools.zoomTouchPinch.activate(element);
 
 
-                });
+          // stack tools
+          cornerstoneTools.addStackStateManager(element, ['playClip']);
+          cornerstoneTools.addToolState(element, 'stack', stacks[0]);
+          cornerstoneTools.stackScrollWheel.activate(element);
+          cornerstoneTools.stackPrefetch.enable(element);
 
-                function resizeStudyViewer() {
-                    var studyRow = $(studyViewer).find('.studyRow')[0];
-                    var height = $(studyRow).height();
-                    var width = $(studyRow).width();
-                    $(seriesList).height(height - 40);
-                    $(parentDiv).width(width - 170);
-                    viewportWrapper.style.width = (parentDiv.style.width - 10) + "px";
-                    viewportWrapper.style.height= (window.innerHeight - 150) + "px";
-                    cornerstone.resize(element, true);
-                }
 
-                $(window).resize(function() {
-                    resizeStudyViewer();
-                });
-                resizeStudyViewer();
+          function disableAllTools()
+          {
+              cornerstoneTools.wwwc.disable(element);
+              cornerstoneTools.pan.activate(element, 2); // 2 is middle mouse button
+              cornerstoneTools.zoom.activate(element, 4); // 4 is right mouse button
+              cornerstoneTools.probe.deactivate(element, 1);
+              cornerstoneTools.length.deactivate(element, 1);
+              cornerstoneTools.ellipticalRoi.deactivate(element, 1);
+              cornerstoneTools.rectangleRoi.deactivate(element, 1);
+              cornerstoneTools.stackScroll.deactivate(element, 1);
+              cornerstoneTools.wwwcTouchDrag.deactivate(element);
+              cornerstoneTools.zoomTouchDrag.deactivate(element);
+              cornerstoneTools.panTouchDrag.deactivate(element);
+              cornerstoneTools.stackScrollTouchDrag.deactivate(element);
+          }
 
-            });
+          var buttons = $(studyViewer).find('button');
+          // Tool button event handlers that set the new active tool
+          $(buttons[0]).on('click touchstart',function() {
+              disableAllTools();
+              cornerstoneTools.wwwc.activate(element, 1);
+              cornerstoneTools.wwwcTouchDrag.activate(element);
+          });
+          $(buttons[1]).on('click touchstart',function() {
+              disableAllTools();
+              var viewport = cornerstone.getViewport(element);
+              if(viewport.invert === true) {
+                  viewport.invert = false;
+              }
+              else {
+                  viewport.invert = true;
+              }
+              cornerstone.setViewport(element, viewport);
+          });
+          $(buttons[2]).on('click touchstart',function() {
+              disableAllTools();
+              cornerstoneTools.zoom.activate(element, 5); // 5 is right mouse button and left mouse button
+              cornerstoneTools.zoomTouchDrag.activate(element);
+          });
+          $(buttons[3]).on('click touchstart',function() {
+              disableAllTools();
+              cornerstoneTools.pan.activate(element, 3); // 3 is middle mouse button and left mouse button
+              cornerstoneTools.panTouchDrag.activate(element);
+          });
+          $(buttons[4]).on('click touchstart',function() {
+              disableAllTools();
+              cornerstoneTools.stackScroll.activate(element, 1);
+              cornerstoneTools.stackScrollTouchDrag.activate(element);
+          });
+          $(buttons[5]).on('click touchstart',function() {
+              disableAllTools();
+              cornerstoneTools.length.activate(element, 1);
+          });
+          $(buttons[6]).on('click touchstart',function() {
+              disableAllTools();
+              cornerstoneTools.probe.activate(element, 1);
+          });
+          $(buttons[7]).on('click touchstart',function() {
+              disableAllTools();
+              cornerstoneTools.ellipticalRoi.activate(element, 1);
+          });
+          $(buttons[8]).on('click touchstart',function() {
+              disableAllTools();
+              cornerstoneTools.rectangleRoi.activate(element, 1);
+          });
+          $(buttons[9]).on('click touchstart',function() {
+              var frameRate = stacks[currentStackIndex].frameRate;
+              if(frameRate === undefined) {
+                  frameRate = 10;
+              }
+              cornerstoneTools.playClip(element, 31);
+          });
+          $(buttons[10]).on('click touchstart',function() {
+              cornerstoneTools.stopClip(element);
+          });
+          $(buttons[0]).tooltip();
+          $(buttons[1]).tooltip();
+          $(buttons[2]).tooltip();
+          $(buttons[3]).tooltip();
+          $(buttons[4]).tooltip();
+          $(buttons[5]).tooltip();
+          $(buttons[6]).tooltip();
+          $(buttons[7]).tooltip();
+          $(buttons[8]).tooltip();
+          $(buttons[9]).tooltip();
+
+      if (false) {
+        // TOOD
+          var seriesList = $(studyViewer).find('.thumbnails')[0];
+          stacks.forEach(function(stack) {
+              var seriesEntry = '<a class="list-group-item" + ' +
+                      'oncontextmenu="return false"' +
+                  'unselectable="on"' +
+                  'onselectstart="return false;"' +
+                  'onmousedown="return false;">' +
+                          '<div class="csthumbnail"' +
+                      'oncontextmenu="return false"' +
+                      'unselectable="on"' +
+                      'onselectstart="return false;"' +
+                      'onmousedown="return false;"></div>' +
+                      "<div class='text-center small'>" + stack.seriesDescription + '</div></a>';
+              var seriesElement = $(seriesEntry).appendTo(seriesList);
+              var thumbnail = $(seriesElement).find('div')[0];
+              cornerstone.enable(thumbnail);
+              cornerstone.loadAndCacheImage(stacks[stack.seriesIndex].imageIds[0]).then(function(image) {
+                  if(stack.seriesIndex === 0) {
+                      $(seriesElement).addClass('active');
+                  }
+                  cornerstone.displayImage(thumbnail, image);
+
+              });
+              $(seriesElement).on('click touchstart', function () {
+                  // make this series visible
+                  var activeThumbnails = $(seriesList).find('a').each(function() {
+                      $(this).removeClass('active');
+                  });
+                  $(seriesElement).addClass('active');
+
+                  cornerstoneTools.stopClip(element);
+                  cornerstoneTools.stackScroll.disable(element);
+                  cornerstoneTools.stackScroll.enable(element, stacks[stack.seriesIndex], 0);
+                  cornerstone.loadAndCacheImage(stacks[stack.seriesIndex].imageIds[0]).then(function(image) {
+                      var defViewport = cornerstone.getDefaultViewport(element, image);
+                      currentStackIndex = stack.seriesIndex;
+                      cornerstone.displayImage(element, image, defViewport);
+                      cornerstone.fitToWindow(element);
+                      var stackState = cornerstoneTools.getToolState(element, 'stack');
+                      stackState.data[0] = stacks[stack.seriesIndex];
+                      stackState.data[0].currentImageIdIndex = 0;
+                      cornerstoneTools.stackPrefetch.enable(element);
+                      $(bottomLeft[1]).text("# Images: " + stacks[stack.seriesIndex].imageIds.length);
+
+                      if(stacks[stack.seriesIndex].frameRate !== undefined) {
+                          cornerstoneTools.playClip(element, stacks[stack.seriesIndex].frameRate);
+                      }
+                  });
+              });
+          });
+        }
+
+          function resizeStudyViewer() {
+              var parentDiv = $(studyViewer).find('.viewer')[0];
+              var studyRow = $(studyViewer).find('.studyRow')[0];
+              var imageViewer = $(studyViewer).find('.imageViewer')[0];
+              var viewportWrapper = $(imageViewer).find('.viewportWrapper')[0];
+              var height = $(studyRow).height();
+              var width = $(studyRow).width();
+              $(seriesList).height(height - 40);
+              $(parentDiv).width(width - 170);
+              viewportWrapper.style.width = (parentDiv.style.width - 10) + "px";
+              viewportWrapper.style.height= (window.innerHeight - 150) + "px";
+              cornerstone.resize(element, true);
+          }
+
+          $(window).resize(function() {
+              resizeStudyViewer();
+          });
+          resizeStudyViewer();
+
+      });
+    }
+
+    function selectSeries (seriesList) {
+      // make this series visible
+      var activeThumbnails = $(seriesList).find('a').each(function() {
+          $(this).removeClass('active');
+      });
+      $(seriesElement).addClass('active');
+
+      cornerstoneTools.stopClip(element);
+      cornerstoneTools.stackScroll.disable(element);
+      cornerstoneTools.stackScroll.enable(element, stacks[stack.seriesIndex], 0);
+      cornerstone.loadAndCacheImage(stacks[stack.seriesIndex].imageIds[0]).then(function(image) {
+          var defViewport = cornerstone.getDefaultViewport(element, image);
+          currentStackIndex = stack.seriesIndex;
+          cornerstone.displayImage(element, image, defViewport);
+          cornerstone.fitToWindow(element);
+          var stackState = cornerstoneTools.getToolState(element, 'stack');
+          stackState.data[0] = stacks[stack.seriesIndex];
+          stackState.data[0].currentImageIdIndex = 0;
+          cornerstoneTools.stackPrefetch.enable(element);
+          $(bottomLeft[1]).text("# Images: " + stacks[stack.seriesIndex].imageIds.length);
+
+          if(stacks[stack.seriesIndex].frameRate !== undefined) {
+              cornerstoneTools.playClip(element, stacks[stack.seriesIndex].frameRate);
+          }
+      });
     }
 
     function loadStudyJson(studyViewer, studyId)
@@ -818,58 +906,6 @@
                 $(buttons[8]).tooltip();
                 $(buttons[9]).tooltip();
 
-                var seriesList = $(studyViewer).find('.thumbnails')[0];
-                stacks.forEach(function(stack) {
-                    var seriesEntry = '<a class="list-group-item" + ' +
-                            'oncontextmenu="return false"' +
-                        'unselectable="on"' +
-                        'onselectstart="return false;"' +
-                        'onmousedown="return false;">' +
-                                '<div class="csthumbnail"' +
-                            'oncontextmenu="return false"' +
-                            'unselectable="on"' +
-                            'onselectstart="return false;"' +
-                            'onmousedown="return false;"></div>' +
-                            "<div class='text-center small'>" + stack.seriesDescription + '</div></a>';
-                    var seriesElement = $(seriesEntry).appendTo(seriesList);
-                    var thumbnail = $(seriesElement).find('div')[0];
-                    cornerstone.enable(thumbnail);
-                    cornerstone.loadAndCacheImage(stacks[stack.seriesIndex].imageIds[0]).then(function(image) {
-                        if(stack.seriesIndex === 0) {
-                            $(seriesElement).addClass('active');
-                        }
-                        cornerstone.displayImage(thumbnail, image);
-
-                    });
-                    $(seriesElement).on('click touchstart', function () {
-                        // make this series visible
-                        var activeThumbnails = $(seriesList).find('a').each(function() {
-                            $(this).removeClass('active');
-                        });
-                        $(seriesElement).addClass('active');
-
-                        cornerstoneTools.stopClip(element);
-                        cornerstoneTools.stackScroll.disable(element);
-                        cornerstoneTools.stackScroll.enable(element, stacks[stack.seriesIndex], 0);
-                        cornerstone.loadAndCacheImage(stacks[stack.seriesIndex].imageIds[0]).then(function(image) {
-                            var defViewport = cornerstone.getDefaultViewport(element, image);
-                            currentStackIndex = stack.seriesIndex;
-                            cornerstone.displayImage(element, image, defViewport);
-                            cornerstone.fitToWindow(element);
-                            var stackState = cornerstoneTools.getToolState(element, 'stack');
-                            stackState.data[0] = stacks[stack.seriesIndex];
-                            stackState.data[0].currentImageIdIndex = 0;
-                            cornerstoneTools.stackPrefetch.enable(element);
-                            $(bottomLeft[1]).text("# Images: " + stacks[stack.seriesIndex].imageIds.length);
-
-                            if(stacks[stack.seriesIndex].frameRate !== undefined) {
-                                cornerstoneTools.playClip(element, stacks[stack.seriesIndex].frameRate);
-                            }
-                        });
-                    });
-
-
-                });
 
                 function resizeStudyViewer() {
                     var studyRow = $(studyViewer).find('.studyRow')[0];
