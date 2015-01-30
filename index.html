@@ -323,7 +323,7 @@
     var seriesList = undefined;
     var firstImageFetched = undefined;
 
-    function chronicleAddStackToSeriesList(stack) {
+    function chronicleAddStackToSeriesList(studyViewer, stack) {
       var seriesEntry = '<a class="list-group-item" + ' +
                             'oncontextmenu="return false"' +
                             'unselectable="on"' +
@@ -346,7 +346,7 @@
           cornerstone.displayImage(thumbnail, image);
       });
 
-      $(seriesElement).on('click touchstart', function () {selectSeries(seriesElement);});
+      $(seriesElement).on('click touchstart', function () {selectSeries(studyViewer, seriesElement, stack);});
     };
 
     // given a key to a series, fill a list of instances
@@ -362,6 +362,7 @@
       seriesIndex++;
       stacks.push(stack);
 
+      // TODO: populate the series selector
       seriesList = $(studyViewer).find('.thumbnails')[0];
 
       // chronicle
@@ -379,13 +380,16 @@
             var instanceURL = chURLPrefix + '/' + chDatabase + '/' + row.value[1] + '/object.dcm';
             //stack.imageId.push(instanceURL);
             if (!firstImageFetched) {
-              instanceURL = 'http://common:5984/chronicle/1.3.6.1.4.1.32722.99.99.115511490271174834109077870583423555935/object.dcm'
+              //instanceURL = 'http://common:5984/chronicle/1.3.6.1.4.1.32722.99.99.115511490271174834109077870583423555935/object.dcm'
               console.log('first row', row);
               console.log('first row', instanceURL);
+              // TODO: fix this so it happens once per loaded tab
               firstImageFetched = instanceURL;
-              enableImageElement(studyViewer, instanceURL); 
+              enableImageElement(studyViewer, instanceURL);
             }
+            stack.imageIds.push(instanceURL);
           });
+          chronicleAddStackToSeriesList(studyViewer, stack);
         },
       });
     };
@@ -670,13 +674,14 @@
       });
     }
 
-    function selectSeries (seriesList) {
+    function selectSeries (studyViewer, seriesElement, stack) {
       // make this series visible
       var activeThumbnails = $(seriesList).find('a').each(function() {
           $(this).removeClass('active');
       });
       $(seriesElement).addClass('active');
 
+      var element = $(studyViewer).find('.viewport')[0];
       cornerstoneTools.stopClip(element);
       cornerstoneTools.stackScroll.disable(element);
       cornerstoneTools.stackScroll.enable(element, stacks[stack.seriesIndex], 0);
