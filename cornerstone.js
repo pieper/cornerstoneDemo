@@ -649,7 +649,6 @@ var cornerstone = (function ($, cornerstone) {
                 return undefined;
             }
         }
-        console.log(imageLoaders)
         imagePromise = loader(imageId);
 
         // broadcast an image loaded event once the image is loaded
