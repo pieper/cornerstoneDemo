@@ -387,7 +387,6 @@
               enableImageElement(studyViewer, instanceURL);
             }
             stack.imageIds.push(instanceURL);
-            stack.imageIds.sort();
           });
           chronicleAddStackToSeriesList(studyViewer, stack);
         },
@@ -654,7 +653,7 @@
     var pendingUpdateRequest = $.couch.db(chDatabase).view("instances/context", {
       reduce : true,
       stale : 'update_after',
-      startkey : [['UnspecifiedInstitution','QIN-PROSTATE-01']], // only show the prostates - they basically work
+      /*startkey : [['UnspecifiedInstitution','QIN-PROSTATE-01']],*/ // only show the prostates - they basically work
       group_level : 2,
       success: function(data) {
         $.each(data.rows, function(index,row) {
