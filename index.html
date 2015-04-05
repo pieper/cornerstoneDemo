@@ -304,8 +304,8 @@
 <script src="dicomParser.min.js"></script>
 
 
-<!-- chronicle: add couch support for jquery -->
-<script src="jquery.couch.js"></script>
+<!-- chronicle: add couch support via pouchdb-->
+<script src="pouchdb-3.3.1.min.js"></script>
 
 <!-- chronicle: add http loader -->
 <script src="cornerstoneHTTPDICOMImageLoader.js"></script>
@@ -314,6 +314,7 @@
 
     var chURLPrefix = "http://common.bwh.harvard.edu:5984";
     var chDatabase = "chronicle";
+    var chronicle = new PouchDB(chURLPrefix+'/'+chDatabase);
 
     $('#tabs a').click(function (e) {
         e.preventDefault()
@@ -369,46 +370,43 @@
       seriesList = $(studyViewer).find('.thumbnails')[0];
 
       // chronicle
-      $.couch.urlPrefix = chURLPrefix;
       seriesUID = key[2][2];
-      var pendingUpdateRequest = $.couch.db(chDatabase).view("instances/seriesInstances", {
+      chronicle.query("instances/seriesInstances", {
         startkey : seriesUID,
         endkey : seriesUID + '\u9999',
         stale : 'update_after',
         reduce : false,
-        success: function(data) {
-          $.each(data.rows, function(index,row) {
-            var instanceURL = chURLPrefix + '/' + chDatabase + '/' + row.value[1] + '/object.dcm';
-            //stack.imageId.push(instanceURL);
-            if (!firstImageFetched) {
-              //instanceURL = 'http://common:5984/chronicle/1.3.6.1.4.1.32722.99.99.115511490271174834109077870583423555935/object.dcm'
-              // TODO: fix this so it happens once per loaded tab
-              firstImageFetched = instanceURL;
-              enableImageElement(studyViewer, instanceURL);
-            }
-            stack.imageIds.push(instanceURL);
-          });
-          chronicleAddStackToSeriesList(studyViewer, stack);
-        },
+      }).then(function(data) {
+        console.log('then data is ', data);
+        $.each(data.rows, function(index,row) {
+          var instanceURL = chURLPrefix + '/' + chDatabase + '/' + row.value[1] + '/object.dcm';
+          //stack.imageId.push(instanceURL);
+          if (!firstImageFetched) {
+            //instanceURL = 'http://common:5984/chronicle/1.3.6.1.4.1.32722.99.99.115511490271174834109077870583423555935/object.dcm'
+            // TODO: fix this so it happens once per loaded tab
+            firstImageFetched = instanceURL;
+            enableImageElement(studyViewer, instanceURL);
+          }
+          stack.imageIds.push(instanceURL);
+        });
+        chronicleAddStackToSeriesList(studyViewer, stack);
       });
     };
 
     // for a study key, request a set of series
     function chronicleLoadStudy(studyViewer, key) {
-      $.couch.urlPrefix = chURLPrefix;
       var endkey = key.slice(0); // shallow copy
       endkey.push({});
-      var pendingUpdateRequest = $.couch.db(chDatabase).view("instances/context", {
+      chronicle.query("instances/context", {
         startkey: key,
         endkey: endkey,
         reduce : true,
         stale : 'update_after',
         group_level : 3,
-        success: function(data) {
-          $.each(data.rows, function(index,row) {
-            chronicleLoadSeries(studyViewer, row.key);
-          });
-        }
+      }).then(function(data) {
+        $.each(data.rows, function(index,row) {
+          chronicleLoadSeries(studyViewer, row.key);
+        });
       });
 
       data = {
@@ -649,57 +647,55 @@
     resizeMain();
 
     // chronicle
-    $.couch.urlPrefix = chURLPrefix;
-    var pendingUpdateRequest = $.couch.db(chDatabase).view("instances/context", {
+    chronicle.query("instances/context", {
       reduce : true,
       stale : 'update_after',
       /*startkey : [['UnspecifiedInstitution','QIN-PROSTATE-01']],*/ // only show the prostates - they basically work
       group_level : 2,
-      success: function(data) {
-        $.each(data.rows, function(index,row) {
-          var id = row.id;
+    }).then(function(data) {
+      $.each(data.rows, function(index,row) {
+        var id = row.id;
 
-          //createSeriesBlock(imageURL);
+        //createSeriesBlock(imageURL);
 
-          var institution = row.key[0][0];
-          var patientUID = String(row.key[0]);
-          var patientID = row.key[0][1];
-          var studyDescription = row.key[1][0];
+        var institution = row.key[0][0];
+        var patientUID = String(row.key[0]);
+        var patientID = row.key[0][1];
+        var studyDescription = row.key[1][0];
 
-          var instanceCount = row.value;
+        var instanceCount = row.value;
 
-          var studyRow = '<tr><td>' +
-                  patientID + '</td><td>' +
-                  patientUID + '</td><td>' +
-                  "study.studyDate" + '</td><td>' +
-                  "study.modality" + '</td><td>' +
-                  studyDescription + '</td><td>' +
-                  instanceCount + '</td><td>' +
-                  '</tr>';
-          var studyRowElement = $(studyRow).appendTo('#studyListData');
-          $(studyRowElement).click(function() {
-              // Add new tab for this study and switch to it
-              var studyTab = '<li><a href="#x' + patientID + '" data-toggle="tab">' + patientID + '</a></li>';
-              $('#tabs').append(studyTab);
+        var studyRow = '<tr><td>' +
+                patientID + '</td><td>' +
+                patientUID + '</td><td>' +
+                "study.studyDate" + '</td><td>' +
+                "study.modality" + '</td><td>' +
+                studyDescription + '</td><td>' +
+                instanceCount + '</td><td>' +
+                '</tr>';
+        var studyRowElement = $(studyRow).appendTo('#studyListData');
+        $(studyRowElement).click(function() {
+          // Add new tab for this study and switch to it
+          var studyTab = '<li><a href="#x' + patientID + '" data-toggle="tab">' + patientID + '</a></li>';
+          $('#tabs').append(studyTab);
 
-              // add tab content by making a copy of the studyViewerTemplate element
-              var studyViewerCopy = $('#studyViewerTemplate').clone();
-              studyViewerCopy.attr("id", 'x' + patientID);
-              studyViewerCopy.removeClass('hidden');
-              studyViewerCopy.appendTo('#tabContent');
+          // add tab content by making a copy of the studyViewerTemplate element
+          var studyViewerCopy = $('#studyViewerTemplate').clone();
+          studyViewerCopy.attr("id", 'x' + patientID);
+          studyViewerCopy.removeClass('hidden');
+          studyViewerCopy.appendTo('#tabContent');
 
-              // show the new tab (which will be the last one since it was just added
-              $('#tabs a:last').tab('show');
+          // show the new tab - which will be the last one since it was just added
+          $('#tabs a:last').tab('show');
 
-              $('a[data-toggle="tab"]').on('shown.bs.tab', function (e) {
-                  $(window).trigger('resize');
-              });
+          $('a[data-toggle="tab"]').on('shown.bs.tab', function (e) {
+              $(window).trigger('resize');
+          });
 
-              // Now load the study.json
-              chronicleLoadStudy(studyViewerCopy, row.key);
-            });
+          // Now load the study.json
+          chronicleLoadStudy(studyViewerCopy, row.key);
         });
-      },
+      });
     });
 
     $("#help").click(function() {
